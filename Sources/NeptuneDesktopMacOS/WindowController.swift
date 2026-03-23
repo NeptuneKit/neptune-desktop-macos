@@ -4,7 +4,7 @@ import WebKit
 final class NeptuneMainWindowController: NSWindowController {
     private let webView: WKWebView
 
-    init(webURL: URL) {
+    init(launchTarget: InspectorLaunchTarget) {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
 
@@ -24,7 +24,7 @@ final class NeptuneMainWindowController: NSWindowController {
         window.minSize = NSSize(width: 960, height: 640)
 
         super.init(window: window)
-        load(webURL: webURL)
+        load(launchTarget: launchTarget)
     }
 
     @available(*, unavailable)
@@ -32,8 +32,12 @@ final class NeptuneMainWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func load(webURL: URL) {
-        let request = URLRequest(url: webURL)
-        webView.load(request)
+    private func load(launchTarget: InspectorLaunchTarget) {
+        switch launchTarget {
+        case let .local(indexURL, readAccessDirectory):
+            webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessDirectory)
+        case let .remote(url):
+            webView.load(URLRequest(url: url))
+        }
     }
 }

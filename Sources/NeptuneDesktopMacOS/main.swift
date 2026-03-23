@@ -13,7 +13,7 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
         }
 
         let controller = NeptuneMainWindowController(
-            webURL: URL(string: "http://127.0.0.1:18765/") ?? URL(fileURLWithPath: "/")
+            launchTarget: InspectorLaunchTargetResolver.resolve()
         )
         windowController = controller
         controller.showWindow(nil)

@@ -14,6 +14,11 @@ let package = Package(
         .executableTarget(
             name: "NeptuneDesktopMacOS",
             path: "Sources/NeptuneDesktopMacOS"
+        ),
+        .testTarget(
+            name: "NeptuneDesktopMacOSTests",
+            dependencies: ["NeptuneDesktopMacOS"],
+            path: "Tests/NeptuneDesktopMacOSTests"
         )
     ]
 )
