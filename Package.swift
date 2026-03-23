@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "NeptuneDesktopMacOS",
-            path: "Sources/NeptuneDesktopMacOS"
+            path: "Sources/NeptuneDesktopMacOS",
+            resources: [
+                .copy("Resources")
+            ]
         ),
         .testTarget(
             name: "NeptuneDesktopMacOSTests",

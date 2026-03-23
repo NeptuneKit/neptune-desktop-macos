@@ -8,6 +8,9 @@ enum InspectorLaunchTarget: Equatable {
 enum InspectorLaunchTargetResolver {
     private static let remoteURL = URL(string: "http://127.0.0.1:18765/")!
     private static let distEnvironmentKey = "NEPTUNE_INSPECTOR_DIST"
+    private static let defaultPackagedInspectorDirectoryURL: URL? = {
+        Bundle.module.resourceURL?.appendingPathComponent("inspector", isDirectory: true)
+    }()
 
     static func resolve(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -15,11 +18,13 @@ enum InspectorLaunchTargetResolver {
         currentDirectoryURL: URL = URL(
             fileURLWithPath: FileManager.default.currentDirectoryPath,
             isDirectory: true
-        )
+        ),
+        packagedInspectorDirectoryURL: URL? = defaultPackagedInspectorDirectoryURL
     ) -> InspectorLaunchTarget {
         for candidateDirectory in candidateDirectories(
             environment: environment,
-            currentDirectoryURL: currentDirectoryURL
+            currentDirectoryURL: currentDirectoryURL,
+            packagedInspectorDirectoryURL: packagedInspectorDirectoryURL
         ) {
             if let localTarget = localTargetIfAvailable(
                 in: candidateDirectory,
@@ -34,7 +39,8 @@ enum InspectorLaunchTargetResolver {
 
     private static func candidateDirectories(
         environment: [String: String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        packagedInspectorDirectoryURL: URL?
     ) -> [URL] {
         var candidates: [URL] = []
 
@@ -50,6 +56,10 @@ enum InspectorLaunchTargetResolver {
             relativeTo: currentDirectoryURL
         )
         candidates.append(fallbackPath.standardizedFileURL)
+
+        if let packagedInspectorDirectoryURL {
+            candidates.append(packagedInspectorDirectoryURL.standardizedFileURL)
+        }
 
         return candidates
     }

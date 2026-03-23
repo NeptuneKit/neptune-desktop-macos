@@ -29,6 +29,33 @@ struct InspectorLaunchTargetResolverTests {
         #expect(readAccessDirectory == distDirectory)
     }
 
+    @Test("falls back to packaged inspector resources before the remote URL")
+    func prefersPackagedInspectorResources() throws {
+        let fileManager = FileManager()
+        let temporaryDirectory = try makeTemporaryDirectory()
+        let packagedInspectorDirectory = temporaryDirectory.appendingPathComponent("Resources/inspector", isDirectory: true)
+        try fileManager.createDirectory(at: packagedInspectorDirectory, withIntermediateDirectories: true)
+
+        let indexURL = packagedInspectorDirectory.appendingPathComponent("index.html")
+        let html = "<!doctype html><html><body>Packaged Inspector</body></html>"
+        try Data(html.utf8).write(to: indexURL)
+
+        let resolved = InspectorLaunchTargetResolver.resolve(
+            environment: [:],
+            fileManager: fileManager,
+            currentDirectoryURL: temporaryDirectory.appendingPathComponent("workspace", isDirectory: true),
+            packagedInspectorDirectoryURL: packagedInspectorDirectory
+        )
+
+        guard case let .local(resolvedIndexURL, readAccessDirectory) = resolved else {
+            Issue.record("Expected local inspector launch target")
+            return
+        }
+
+        #expect(resolvedIndexURL == indexURL)
+        #expect(readAccessDirectory == packagedInspectorDirectory)
+    }
+
     @Test("falls back to the gateway URL when no local dist exists")
     func fallsBackToRemoteURL() {
         let isolatedWorkingDirectory = FileManager.default.temporaryDirectory

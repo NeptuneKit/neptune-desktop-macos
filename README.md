@@ -5,8 +5,8 @@ NeptuneKit v2 macOS shell app.
 ## What it does
 
 - Launches a minimal AppKit window.
-- Embeds `WKWebView` and prefers a local packaged inspector `dist/index.html` when available.
-- Falls back to `http://127.0.0.1:18765/` when no local inspector build output is present.
+- Embeds `WKWebView` and resolves inspector assets in this order: `NEPTUNE_INSPECTOR_DIST`, `../neptune-inspector-h5/dist`, packaged app resources at `Resources/inspector/index.html`, then `http://127.0.0.1:18765/`.
+- Falls back to `http://127.0.0.1:18765/` when no local inspector asset is present.
 - Launches `neptune-gateway` automatically when the shell starts.
 
 ## Current structure
@@ -22,7 +22,7 @@ swift build
 swift run NeptuneDesktopMacOS
 ```
 
-The window will first look for a local inspector build output, then fall back to `http://127.0.0.1:18765/`.
+The window will first look for a local inspector asset, then fall back to `http://127.0.0.1:18765/`.
 
 ## Inspector 资源加载
 
@@ -71,10 +71,10 @@ If the gateway fails to start, the window still opens and the error is printed t
 
 ## Next integration points
 
-- Bundle the inspector dist into the app bundle for release packaging.
-- Add a dedicated packaged-resources search path when we introduce app bundle resources.
+- Copy the built inspector dist into the app bundle at `Resources/inspector/` for release packaging.
+- Wire a packaging step in CI/release scripts so bundle resources stay in sync with the inspector build output.
 
 ## Notes
 
-- This is intentionally a thin shell. The static asset pipeline is left as an explicit TODO.
+- This is intentionally a thin shell. Static asset loading already works for local dist folders and packaged app resources; release packaging still needs a copy step to move built inspector files into `Resources/inspector/`.
 - `.build/` and `.swiftpm/` are ignored so local builds do not dirty the repo.
