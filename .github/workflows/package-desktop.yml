@@ -38,7 +38,7 @@ jobs:
       - name: Package macOS app
         run: |
           ./scripts/package-macos-app.sh \
-            --configuration "${{ inputs.configuration }}" \
+            --configuration "${{ inputs.configuration || 'Release' }}" \
             --dist neptune-inspector-h5/dist \
             --output .build/artifacts/NeptuneDesktopMacOS.app
 
@@ -52,6 +52,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NeptuneDesktopMacOS-app
+          name: NeptuneDesktopMacOS.app.zip
           path: .build/artifacts/NeptuneDesktopMacOS.app.zip
           if-no-files-found: error

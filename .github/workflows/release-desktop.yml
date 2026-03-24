@@ -1,0 +1,97 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to publish. Leave empty when dispatching from the release tag ref."
+        required: false
+        default: ""
+        type: string
+      configuration:
+        description: "Swift build configuration"
+        required: false
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+      draft:
+        description: "Create the GitHub Release as a draft"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark the GitHub Release as a prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          tag_name="${{ inputs.tag_name }}"
+          if [[ -z "$tag_name" ]]; then
+            tag_name="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF_TYPE}" != "tag" && -z "${{ inputs.tag_name }}" ]]; then
+            printf 'workflow_dispatch from a branch requires inputs.tag_name.\n' >&2
+            exit 1
+          fi
+
+          printf 'tag_name=%s\n' "$tag_name" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout NeptuneKit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout inspector assets
+        uses: actions/checkout@v4
+        with:
+          repository: NeptuneKit/neptune-inspector-h5
+          path: neptune-inspector-h5
+          fetch-depth: 0
+
+      - name: Build inspector desktop assets
+        working-directory: neptune-inspector-h5
+        run: ./scripts/build-desktop-assets.sh
+
+      - name: Package macOS app
+        run: |
+          ./scripts/package-macos-app.sh \
+            --configuration "${{ inputs.configuration || 'Release' }}" \
+            --dist neptune-inspector-h5/dist \
+            --output .build/artifacts/NeptuneDesktopMacOS.app
+
+      - name: Create zip artifact
+        run: |
+          mkdir -p .build/artifacts
+          ditto -c -k --keepParent \
+            .build/artifacts/NeptuneDesktopMacOS.app \
+            .build/artifacts/NeptuneDesktopMacOS.app.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag_name }}
+          name: NeptuneDesktopMacOS ${{ steps.release_tag.outputs.tag_name }}
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ inputs.prerelease || false }}
+          generate_release_notes: true
+          files: .build/artifacts/NeptuneDesktopMacOS.app.zip

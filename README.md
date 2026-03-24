@@ -85,16 +85,23 @@ Use the packaging script to build a distributable macOS app bundle and copy the 
 
 The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the SwiftPM resource bundle, and places the inspector dist under both the app bundle `Resources/inspector/` path and the SwiftPM resource bundle used by `Bundle.module`.
 
-## GitHub Actions 打包
+## GitHub Actions 打包与发布
 
-仓库提供了手动触发的打包 workflow：
+仓库提供了两个 macOS 分发 workflow：
 
 1. 打开 GitHub Actions。
 2. 选择 `Package Desktop App`。
 3. 点击 `Run workflow`，可选选择 `Release` 或 `Debug`。
 4. Workflow 会先 checkout 当前仓库，再 checkout `NeptuneKit/neptune-inspector-h5` 到相邻目录。
 5. 先执行 `./scripts/build-desktop-assets.sh`，再执行 `./scripts/package-macos-app.sh`。
-6. 最终上传 `NeptuneDesktopMacOS.app.zip` 作为 artifact。
+6. 最终上传 `NeptuneDesktopMacOS.app.zip` 作为 artifact，文件名与打包产物保持一致。
+
+Release workflow 适合正式发布：
+
+1. 推送 `v*` tag 时会自动执行 `Release Desktop App`。
+2. 也可以手动触发 `workflow_dispatch`，并在 `tag_name` 中指定要发布的 tag。
+3. Workflow 会复用同样的打包逻辑，生成 `NeptuneDesktopMacOS.app.zip` 后通过 `softprops/action-gh-release` 发布到 GitHub Release。
+4. 手动触发时还可以选择 `draft` 和 `prerelease`。
 
 如果需要本地复现，步骤与 workflow 相同，只是直接运行两个脚本：
 
