@@ -24,6 +24,10 @@ swift run NeptuneDesktopMacOS
 
 The window will first look for a local inspector asset, then fall back to `http://127.0.0.1:18765/`.
 
+## CI
+
+GitHub Actions runs on every `push` to `main` and on every `pull_request`. The workflow uses `swift build` followed by `swift test` on `macos-15` to keep the package and test suite validated continuously.
+
 ## Inspector 资源加载
 
 默认情况下，desktop app 会按以下顺序查找 inspector 静态资源：
