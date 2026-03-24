@@ -85,6 +85,30 @@ Use the packaging script to build a distributable macOS app bundle and copy the 
 
 The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the SwiftPM resource bundle, and places the inspector dist under both the app bundle `Resources/inspector/` path and the SwiftPM resource bundle used by `Bundle.module`.
 
+## GitHub Actions 打包
+
+仓库提供了手动触发的打包 workflow：
+
+1. 打开 GitHub Actions。
+2. 选择 `Package Desktop App`。
+3. 点击 `Run workflow`，可选选择 `Release` 或 `Debug`。
+4. Workflow 会先 checkout 当前仓库，再 checkout `NeptuneKit/neptune-inspector-h5` 到相邻目录。
+5. 先执行 `./scripts/build-desktop-assets.sh`，再执行 `./scripts/package-macos-app.sh`。
+6. 最终上传 `NeptuneDesktopMacOS.app.zip` 作为 artifact。
+
+如果需要本地复现，步骤与 workflow 相同，只是直接运行两个脚本：
+
+```bash
+cd neptune-inspector-h5
+./scripts/build-desktop-assets.sh
+
+cd ../neptune-desktop-macos
+./scripts/package-macos-app.sh \
+  --configuration Release \
+  --dist ../neptune-inspector-h5/dist \
+  --output .build/artifacts/NeptuneDesktopMacOS.app
+```
+
 ## Notes
 
 - This is intentionally a thin shell. Static asset loading already works for local dist folders and packaged app resources.

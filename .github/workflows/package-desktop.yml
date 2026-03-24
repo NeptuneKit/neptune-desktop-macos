@@ -1,0 +1,57 @@
+name: Package Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Swift build configuration"
+        required: false
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout NeptuneKit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout inspector assets
+        uses: actions/checkout@v4
+        with:
+          repository: NeptuneKit/neptune-inspector-h5
+          path: neptune-inspector-h5
+          fetch-depth: 0
+
+      - name: Build inspector desktop assets
+        working-directory: neptune-inspector-h5
+        run: ./scripts/build-desktop-assets.sh
+
+      - name: Package macOS app
+        run: |
+          ./scripts/package-macos-app.sh \
+            --configuration "${{ inputs.configuration }}" \
+            --dist neptune-inspector-h5/dist \
+            --output .build/artifacts/NeptuneDesktopMacOS.app
+
+      - name: Create zip artifact
+        run: |
+          mkdir -p .build/artifacts
+          ditto -c -k --keepParent \
+            .build/artifacts/NeptuneDesktopMacOS.app \
+            .build/artifacts/NeptuneDesktopMacOS.app.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeptuneDesktopMacOS-app
+          path: .build/artifacts/NeptuneDesktopMacOS.app.zip
+          if-no-files-found: error
