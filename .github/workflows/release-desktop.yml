@@ -79,12 +79,24 @@ jobs:
             --dist neptune-inspector-h5/dist \
             --output .build/artifacts/NeptuneDesktopMacOS.app
 
+      - name: Smoke test packaged app
+        run: |
+          ./scripts/smoke-test-app.sh \
+            --artifact .build/artifacts/NeptuneDesktopMacOS.app \
+            --expected-bundle-id com.neptunekit.neptune-desktop-macos
+
       - name: Create zip artifact
         run: |
           mkdir -p .build/artifacts
           ditto -c -k --keepParent \
             .build/artifacts/NeptuneDesktopMacOS.app \
             .build/artifacts/NeptuneDesktopMacOS.app.zip
+
+      - name: Smoke test zipped artifact
+        run: |
+          ./scripts/smoke-test-app.sh \
+            --artifact .build/artifacts/NeptuneDesktopMacOS.app.zip \
+            --expected-bundle-id com.neptunekit.neptune-desktop-macos
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

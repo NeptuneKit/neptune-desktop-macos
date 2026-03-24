@@ -85,6 +85,29 @@ Use the packaging script to build a distributable macOS app bundle and copy the 
 
 The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the SwiftPM resource bundle, and places the inspector dist under both the app bundle `Resources/inspector/` path and the SwiftPM resource bundle used by `Bundle.module`.
 
+### Smoke test
+
+发布流程会在 `zip` 前后运行 `scripts/smoke-test-app.sh`，确保打包产物满足最小可运行结构：
+
+- `.app` bundle 结构存在
+- `Contents/MacOS/<executable>` 可执行文件存在
+- `Contents/Info.plist` 中的 `CFBundleIdentifier` 和 `CFBundleExecutable` 可读
+- `Contents/Resources/inspector/index.html` 存在
+
+脚本也可以本地复用：
+
+```bash
+./scripts/smoke-test-app.sh \
+  --artifact .build/artifacts/NeptuneDesktopMacOS.app \
+  --expected-bundle-id com.neptunekit.neptune-desktop-macos
+
+./scripts/smoke-test-app.sh \
+  --artifact .build/artifacts/NeptuneDesktopMacOS.app.zip \
+  --expected-bundle-id com.neptunekit.neptune-desktop-macos
+```
+
+脚本的最小自动化验证位于 `scripts/test-smoke-test-app.sh`，会生成一个临时假 `.app` 和 `.app.zip` 并执行 smoke test。
+
 ## GitHub Actions 打包与发布
 
 仓库提供了两个 macOS 分发 workflow：

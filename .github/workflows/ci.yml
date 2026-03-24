@@ -19,3 +19,8 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: Validate smoke test script
+        run: |
+          bash -n scripts/smoke-test-app.sh
+          bash scripts/test-smoke-test-app.sh
