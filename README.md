@@ -73,12 +73,19 @@ If the gateway fails to start, the window still opens and the error is printed t
 3. Start this desktop shell.
 4. The embedded `WKWebView` loads the local inspector first, otherwise it falls back to the gateway URL.
 
-## Next integration points
+## Release packaging
 
-- Copy the built inspector dist into the app bundle at `Resources/inspector/` for release packaging.
-- Wire a packaging step in CI/release scripts so bundle resources stay in sync with the inspector build output.
+Use the packaging script to build a distributable macOS app bundle and copy the inspector dist into the bundle resources:
+
+```bash
+./scripts/package-macos-app.sh \
+  --dist ../neptune-inspector-h5/dist \
+  --output .build/artifacts/NeptuneDesktopMacOS.app
+```
+
+The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the SwiftPM resource bundle, and places the inspector dist under both the app bundle `Resources/inspector/` path and the SwiftPM resource bundle used by `Bundle.module`.
 
 ## Notes
 
-- This is intentionally a thin shell. Static asset loading already works for local dist folders and packaged app resources; release packaging still needs a copy step to move built inspector files into `Resources/inspector/`.
+- This is intentionally a thin shell. Static asset loading already works for local dist folders and packaged app resources.
 - `.build/` and `.swiftpm/` are ignored so local builds do not dirty the repo.
