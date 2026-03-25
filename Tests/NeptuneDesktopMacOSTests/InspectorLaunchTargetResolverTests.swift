@@ -4,6 +4,21 @@ import Testing
 
 @Suite("InspectorLaunchTargetResolver")
 struct InspectorLaunchTargetResolverTests {
+    @Test("uses NEPTUNE_INSPECTOR_URL as highest-priority remote target")
+    func prefersRemoteURLFromEnvironment() {
+        let resolved = InspectorLaunchTargetResolver.resolve(
+            environment: ["NEPTUNE_INSPECTOR_URL": "http://127.0.0.1:4173"],
+            fileManager: FileManager()
+        )
+
+        guard case let .remote(url) = resolved else {
+            Issue.record("Expected remote inspector launch target")
+            return
+        }
+
+        #expect(url.absoluteString == "http://127.0.0.1:4173")
+    }
+
     @Test("prefers local dist when env path points to a packaged inspector")
     func prefersEnvProvidedDistDirectory() throws {
         let fileManager = FileManager()
@@ -69,6 +84,36 @@ struct InspectorLaunchTargetResolverTests {
             environment: [:],
             fileManager: FileManager(),
             currentDirectoryURL: isolatedWorkingDirectory
+        )
+
+        guard case let .remote(url) = resolved else {
+            Issue.record("Expected remote inspector launch target")
+            return
+        }
+
+        #expect(url.absoluteString == "http://127.0.0.1:18765/")
+    }
+
+    @Test("does not probe implicit sibling dist directory unless NEPTUNE_INSPECTOR_DIST is provided")
+    func ignoresImplicitSiblingDistDirectory() throws {
+        let fileManager = FileManager()
+        let root = try makeTemporaryDirectory()
+        let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+        try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let siblingDist = root
+            .appendingPathComponent("neptune-inspector-h5", isDirectory: true)
+            .appendingPathComponent("dist", isDirectory: true)
+        try fileManager.createDirectory(at: siblingDist, withIntermediateDirectories: true)
+        try Data("<html>Sibling</html>".utf8).write(
+            to: siblingDist.appendingPathComponent("index.html", isDirectory: false)
+        )
+
+        let resolved = InspectorLaunchTargetResolver.resolve(
+            environment: [:],
+            fileManager: fileManager,
+            currentDirectoryURL: workspace,
+            packagedInspectorDirectoryURL: nil
         )
 
         guard case let .remote(url) = resolved else {

@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 
 @MainActor
 final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
@@ -17,7 +18,14 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
         )
         windowController = controller
         controller.showWindow(nil)
+        ensureWindowVisible(controller)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if let windowController {
+            ensureWindowVisible(windowController)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -26,6 +34,14 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         gatewayLauncher.stop()
+    }
+
+    private func ensureWindowVisible(_ controller: NeptuneMainWindowController) {
+        for delay in [0.0, 0.3, 1.0, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                controller.ensureWindowVisible()
+            }
+        }
     }
 }
 

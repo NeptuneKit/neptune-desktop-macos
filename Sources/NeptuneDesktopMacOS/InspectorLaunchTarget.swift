@@ -7,6 +7,7 @@ enum InspectorLaunchTarget: Equatable {
 
 enum InspectorLaunchTargetResolver {
     private static let remoteURL = URL(string: "http://127.0.0.1:18765/")!
+    private static let inspectorURLEnvironmentKey = "NEPTUNE_INSPECTOR_URL"
     private static let distEnvironmentKey = "NEPTUNE_INSPECTOR_DIST"
     private static let defaultPackagedInspectorDirectoryURL: URL? = {
         Bundle.module.resourceURL?.appendingPathComponent("inspector", isDirectory: true)
@@ -21,6 +22,10 @@ enum InspectorLaunchTargetResolver {
         ),
         packagedInspectorDirectoryURL: URL? = defaultPackagedInspectorDirectoryURL
     ) -> InspectorLaunchTarget {
+        if let inspectorURL = remoteTargetIfAvailable(environment: environment) {
+            return inspectorURL
+        }
+
         for candidateDirectory in candidateDirectories(
             environment: environment,
             currentDirectoryURL: currentDirectoryURL,
@@ -37,6 +42,18 @@ enum InspectorLaunchTargetResolver {
         return .remote(remoteURL)
     }
 
+    private static func remoteTargetIfAvailable(
+        environment: [String: String]
+    ) -> InspectorLaunchTarget? {
+        guard let rawURL = environment[inspectorURLEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawURL.isEmpty,
+              let url = URL(string: rawURL) else {
+            return nil
+        }
+
+        return .remote(url)
+    }
+
     private static func candidateDirectories(
         environment: [String: String],
         currentDirectoryURL: URL,
@@ -50,12 +67,6 @@ enum InspectorLaunchTargetResolver {
                 URL(fileURLWithPath: distPath, relativeTo: currentDirectoryURL).standardizedFileURL
             )
         }
-
-        let fallbackPath = URL(
-            fileURLWithPath: "../neptune-inspector-h5/dist",
-            relativeTo: currentDirectoryURL
-        )
-        candidates.append(fallbackPath.standardizedFileURL)
 
         if let packagedInspectorDirectoryURL {
             candidates.append(packagedInspectorDirectoryURL.standardizedFileURL)
