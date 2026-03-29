@@ -13,6 +13,7 @@ and the SwiftPM resource bundle used by Bundle.module.
 Options:
   --configuration <Debug|Release>  Swift build configuration (default: Release)
   --dist <path>                    Path to neptune-inspector-h5/dist
+  --gateway-bin <path>             Path to neptune CLI binary to embed into app resources
   --output <path>                  Output .app bundle path (default: .build/artifacts/NeptuneDesktopMacOS.app)
   --bundle-id <id>                 CFBundleIdentifier to write into Info.plist
   --dry-run                        Print planned actions without writing files
@@ -28,6 +29,7 @@ configuration="Release"
 dist_path="$default_dist_path"
 output_path="$default_output_path"
 bundle_identifier="com.neptunekit.neptune-desktop-macos"
+gateway_bin_path=""
 dry_run=false
 
 resolve_path() {
@@ -64,6 +66,10 @@ while (($#)); do
       output_path="${2:-}"
       shift 2
       ;;
+    --gateway-bin)
+      gateway_bin_path="${2:-}"
+      shift 2
+      ;;
     --bundle-id)
       bundle_identifier="${2:-}"
       shift 2
@@ -94,12 +100,17 @@ swift_configuration="$(printf '%s' "$configuration" | tr '[:upper:]' '[:lower:]'
 
 dist_path="$(resolve_path "$dist_path")"
 output_path="$(resolve_path "$output_path")"
+if [[ -n "$gateway_bin_path" ]]; then
+  gateway_bin_path="$(resolve_path "$gateway_bin_path")"
+fi
 
 binary_name="NeptuneDesktopMacOS"
+gateway_binary_name="neptune"
 bundle_name="NeptuneDesktopMacOS_NeptuneDesktopMacOS.bundle"
 bundle_dir="$(dirname "$output_path")/$bundle_name"
 top_level_resources_dir="$output_path/Contents/Resources"
 top_level_inspector_dir="$top_level_resources_dir/inspector"
+top_level_gateway_bin_dir="$top_level_resources_dir/bin"
 bundle_inspector_dir="$bundle_dir/Contents/Resources/inspector"
 
 if [[ "$dry_run" == false ]]; then
@@ -116,6 +127,12 @@ bin_path="$(swift build -c "$swift_configuration" --show-bin-path)"
 binary_path="$bin_path/$binary_name"
 resource_bundle_source="$bin_path/$bundle_name"
 
+if [[ -z "$gateway_bin_path" ]]; then
+  if command -v "$gateway_binary_name" >/dev/null 2>&1; then
+    gateway_bin_path="$(command -v "$gateway_binary_name")"
+  fi
+fi
+
 if [[ "$dry_run" == false ]]; then
   if [[ ! -x "$binary_path" ]]; then
     printf 'Built executable not found: %s\n' "$binary_path" >&2
@@ -125,16 +142,27 @@ if [[ "$dry_run" == false ]]; then
     printf 'SwiftPM resource bundle not found: %s\n' "$resource_bundle_source" >&2
     exit 1
   fi
+  if [[ -z "$gateway_bin_path" ]]; then
+    printf 'Embedded CLI binary not found. Set --gateway-bin or make `%s` available on PATH.\n' "$gateway_binary_name" >&2
+    exit 1
+  fi
+  if [[ ! -x "$gateway_bin_path" ]]; then
+    printf 'Embedded CLI binary is not executable: %s\n' "$gateway_bin_path" >&2
+    exit 1
+  fi
 fi
 
 run rm -rf "$output_path" "$bundle_dir"
 run mkdir -p "$(dirname "$output_path")"
 run mkdir -p "$output_path/Contents/MacOS"
 run mkdir -p "$top_level_inspector_dir"
+run mkdir -p "$top_level_gateway_bin_dir"
 run ditto "$resource_bundle_source" "$bundle_dir"
 run ditto "$dist_path" "$top_level_inspector_dir"
 run ditto "$dist_path" "$bundle_inspector_dir"
 run cp "$binary_path" "$output_path/Contents/MacOS/$binary_name"
+run cp "$gateway_bin_path" "$top_level_gateway_bin_dir/$gateway_binary_name"
+run chmod +x "$top_level_gateway_bin_dir/$gateway_binary_name"
 
 if $dry_run; then
   printf '[dry-run] write %q\n' "$output_path/Contents/Info.plist"

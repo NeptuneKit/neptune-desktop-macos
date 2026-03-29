@@ -11,16 +11,23 @@ fake_app="$temp_root/NeptuneDesktopMacOS.app"
 contents_dir="$fake_app/Contents"
 macos_dir="$contents_dir/MacOS"
 resources_dir="$contents_dir/Resources/inspector"
+embedded_cli_dir="$contents_dir/Resources/bin"
 executable_name="NeptuneDesktopMacOS"
 bundle_identifier="com.neptunekit.neptune-desktop-macos"
 
-mkdir -p "$macos_dir" "$resources_dir"
+mkdir -p "$macos_dir" "$resources_dir" "$embedded_cli_dir"
 
 cat >"$macos_dir/$executable_name" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 chmod +x "$macos_dir/$executable_name"
+
+cat >"$embedded_cli_dir/neptune" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$embedded_cli_dir/neptune"
 
 cat >"$contents_dir/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

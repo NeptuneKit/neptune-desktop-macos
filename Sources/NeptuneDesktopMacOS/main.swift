@@ -5,21 +5,24 @@ import Dispatch
 final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
     private var windowController: NeptuneMainWindowController?
     private let gatewayLauncher = GatewayLauncher()
+    private let runtimeConfiguration = DesktopRuntimeConfiguration.fromEnvironment()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        do {
-            try gatewayLauncher.start()
-        } catch {
-            NSLog("Failed to start gateway launcher: %@", String(describing: error))
-        }
-
         let controller = NeptuneMainWindowController(
-            launchTarget: InspectorLaunchTargetResolver.resolve()
+            webURL: runtimeConfiguration.webURL,
+            onStartCLI: { [weak self] in
+                self?.startGateway()
+            },
+            onStopCLI: { [weak self] in
+                self?.gatewayLauncher.stop()
+            }
         )
         windowController = controller
+        bindLauncherEvents()
         controller.showWindow(nil)
         ensureWindowVisible(controller)
         NSApp.activate(ignoringOtherApps: true)
+        startGateway()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -34,6 +37,30 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         gatewayLauncher.stop()
+    }
+
+    private func startGateway() {
+        do {
+            try gatewayLauncher.start()
+        } catch {
+            let message = "Failed to start gateway launcher: \(error)"
+            NSLog("%@", message)
+            windowController?.appendLogLine("[desktop] \(message)")
+            windowController?.updateCLIStatus(isRunning: false)
+        }
+    }
+
+    private func bindLauncherEvents() {
+        gatewayLauncher.setLogHandler { [weak self] line in
+            Task { @MainActor in
+                self?.windowController?.appendLogLine(line)
+            }
+        }
+        gatewayLauncher.setStateChangeHandler { [weak self] isRunning in
+            Task { @MainActor in
+                self?.windowController?.updateCLIStatus(isRunning: isRunning)
+            }
+        }
     }
 
     private func ensureWindowVisible(_ controller: NeptuneMainWindowController) {

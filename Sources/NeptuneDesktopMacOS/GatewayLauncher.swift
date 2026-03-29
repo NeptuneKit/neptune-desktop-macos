@@ -1,6 +1,9 @@
 import Foundation
 
 public final class GatewayLauncher: @unchecked Sendable {
+    public typealias LogHandler = @Sendable (String) -> Void
+    public typealias StateChangeHandler = @Sendable (Bool) -> Void
+
     public struct Configuration: Sendable {
         public let binaryPath: String
         public let host: String
@@ -23,6 +26,8 @@ public final class GatewayLauncher: @unchecked Sendable {
     private var process: Process?
     private var stdoutPipe: Pipe?
     private var stderrPipe: Pipe?
+    private var logHandler: LogHandler?
+    private var stateChangeHandler: StateChangeHandler?
 
     public init() {}
 
@@ -32,10 +37,11 @@ public final class GatewayLauncher: @unchecked Sendable {
 
     public func start() throws {
         lock.lock()
-        defer { lock.unlock() }
-
         guard process == nil else {
+            let stateHandler = stateChangeHandler
             isRunning = true
+            lock.unlock()
+            stateHandler?(true)
             return
         }
 
@@ -53,11 +59,11 @@ public final class GatewayLauncher: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            Self.forwardPipeOutput(handle, prefix: "gateway stdout")
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            self?.forwardPipeOutput(handle, prefix: "gateway stdout")
         }
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            Self.forwardPipeOutput(handle, prefix: "gateway stderr")
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            self?.forwardPipeOutput(handle, prefix: "gateway stderr")
         }
 
         process.terminationHandler = { [weak self] terminatedProcess in
@@ -69,6 +75,7 @@ public final class GatewayLauncher: @unchecked Sendable {
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            lock.unlock()
             throw error
         }
 
@@ -76,7 +83,14 @@ public final class GatewayLauncher: @unchecked Sendable {
         self.stdoutPipe = stdoutPipe
         self.stderrPipe = stderrPipe
         isRunning = true
-        NSLog("Launched gateway process: %@ %@", configuration.binaryPath, "\(configuration.host):\(configuration.port)")
+        let launchMessage = "Launched gateway process: \(configuration.binaryPath) \(configuration.host):\(configuration.port)"
+        let logHandler = self.logHandler
+        let stateHandler = self.stateChangeHandler
+        lock.unlock()
+
+        NSLog("%@", launchMessage)
+        logHandler?(launchMessage)
+        stateHandler?(true)
     }
 
     public func stop() {
@@ -97,6 +111,7 @@ public final class GatewayLauncher: @unchecked Sendable {
         }
 
         process.terminate()
+        stateChangeHandler?(false)
     }
 
     public var currentConfiguration: Configuration? {
@@ -110,14 +125,33 @@ public final class GatewayLauncher: @unchecked Sendable {
         return Self.configurationFromEnvironment()
     }
 
-    private func handleTermination(process: Process) {
+    public func setLogHandler(_ handler: LogHandler?) {
         lock.lock()
         defer { lock.unlock() }
+        logHandler = handler
+    }
 
+    public func setStateChangeHandler(_ handler: StateChangeHandler?) {
+        lock.lock()
+        defer { lock.unlock() }
+        stateChangeHandler = handler
+    }
+
+    private func handleTermination(process: Process) {
+        lock.lock()
         if self.process === process {
             cleanupLocked()
-            NSLog("Gateway process terminated with status: %d", process.terminationStatus)
+            let terminationMessage = "Gateway process terminated with status: \(process.terminationStatus)"
+            let logHandler = self.logHandler
+            let stateHandler = self.stateChangeHandler
+            lock.unlock()
+
+            NSLog("%@", terminationMessage)
+            logHandler?(terminationMessage)
+            stateHandler?(false)
+            return
         }
+        lock.unlock()
     }
 
     private func cleanupLocked() {
@@ -130,19 +164,12 @@ public final class GatewayLauncher: @unchecked Sendable {
     }
 
     private static func configurationFromEnvironment() -> Configuration {
-        let environment = ProcessInfo.processInfo.environment
-        let binaryPath = environment["NEPTUNE_GATEWAY_BIN"]
-            ?? "neptune-gateway"
-        let host = environment["NEPTUNE_HOST"]
-            ?? "127.0.0.1"
-        let portValue = environment["NEPTUNE_PORT"]
-            ?? "18765"
-        let port = Int(portValue) ?? 18765
+        let runtime = DesktopRuntimeConfiguration.fromEnvironment()
 
         return Configuration(
-            binaryPath: binaryPath,
-            host: host,
-            port: port
+            binaryPath: runtime.binaryPath,
+            host: runtime.host,
+            port: runtime.port
         )
     }
 
@@ -153,14 +180,23 @@ public final class GatewayLauncher: @unchecked Sendable {
         return environment
     }
 
-    private static func forwardPipeOutput(_ handle: FileHandle, prefix: String) {
+    private func forwardPipeOutput(_ handle: FileHandle, prefix: String) {
         let data = handle.availableData
         guard !data.isEmpty, let output = String(data: data, encoding: .utf8) else {
             return
         }
 
         for line in output.split(whereSeparator: \.isNewline) {
-            NSLog("%@: %@", prefix, String(line))
+            let message = "\(prefix): \(line)"
+            NSLog("%@", message)
+            emitLog(message)
         }
+    }
+
+    private func emitLog(_ line: String) {
+        lock.lock()
+        let handler = logHandler
+        lock.unlock()
+        handler?(line)
     }
 }

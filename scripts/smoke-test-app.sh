@@ -8,7 +8,7 @@ Usage: smoke-test-app.sh --artifact <path> [--expected-bundle-id <id>]
 
 Validates a packaged NeptuneDesktopMacOS .app bundle or .app.zip artifact.
 Checks the app bundle structure, executable presence, Info.plist fields, and
-the packaged inspector index.html file.
+the packaged inspector index.html file plus embedded CLI binary.
 
 Options:
   --artifact <path>              Path to a .app bundle or .app.zip artifact
@@ -49,6 +49,7 @@ validate_app_bundle() {
   local resources_dir="$contents_dir/Resources"
   local info_plist="$contents_dir/Info.plist"
   local inspector_index="$resources_dir/inspector/index.html"
+  local embedded_cli="$resources_dir/bin/neptune"
   local bundle_identifier=""
   local bundle_executable=""
   local executable_path=""
@@ -60,6 +61,8 @@ validate_app_bundle() {
   [[ -d "$resources_dir" ]] || fail "Missing Resources directory: $resources_dir"
   [[ -f "$info_plist" ]] || fail "Missing Info.plist: $info_plist"
   [[ -f "$inspector_index" ]] || fail "Missing inspector index.html: $inspector_index"
+  [[ -f "$embedded_cli" ]] || fail "Missing embedded CLI binary: $embedded_cli"
+  [[ -x "$embedded_cli" ]] || fail "Embedded CLI binary is not executable: $embedded_cli"
 
   bundle_identifier="$(read_plist_value CFBundleIdentifier "$info_plist")"
   bundle_executable="$(read_plist_value CFBundleExecutable "$info_plist")"

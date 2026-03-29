@@ -1,28 +1,28 @@
 import AppKit
-import WebKit
 
-final class NeptuneMainWindowController: NSWindowController, WKNavigationDelegate {
-    private static let persistedFrameKey = "NeptuneDesktopMacOS.MainWindow.PersistedFrame"
-    private let webView: WKWebView
+@MainActor
+final class NeptuneMainWindowController: NSWindowController {
     private let defaultWindowSize = NSSize(width: 1280, height: 860)
-    private var hasDisplayedLoadFailurePage = false
+    private let statusLabel = NSTextField(labelWithString: "CLI 状态：未运行")
+    private let webURLLabel = NSTextField(labelWithString: "")
+    private let logTextView = NSTextView()
+    private let startButton = NSButton(title: "启动 CLI", target: nil, action: nil)
+    private let stopButton = NSButton(title: "停止 CLI", target: nil, action: nil)
+    private let openWebButton = NSButton(title: "打开 Web", target: nil, action: nil)
+    private let copyWebButton = NSButton(title: "复制 URL", target: nil, action: nil)
 
-    init(launchTarget: InspectorLaunchTarget) {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+    private let webURL: URL
+    private let onStartCLI: () -> Void
+    private let onStopCLI: () -> Void
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
-        let viewController = NSViewController()
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 860))
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-        ])
-        viewController.view = containerView
+    init(
+        webURL: URL,
+        onStartCLI: @escaping () -> Void,
+        onStopCLI: @escaping () -> Void
+    ) {
+        self.webURL = webURL
+        self.onStartCLI = onStartCLI
+        self.onStopCLI = onStopCLI
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
@@ -30,34 +30,17 @@ final class NeptuneMainWindowController: NSWindowController, WKNavigationDelegat
             backing: .buffered,
             defer: false
         )
-        window.title = "NeptuneDesktopMacOS"
+        window.title = "Neptune Desktop CLI Shell"
         window.center()
-        window.contentViewController = viewController
         window.minSize = NSSize(width: 960, height: 640)
-        window.setFrameAutosaveName("NeptuneDesktopMacOS.MainWindow.Frame")
-        Self.restorePersistedFrameIfNeeded(window)
 
         super.init(window: window)
-        configureWindowFramePersistence(window)
-        webView.navigationDelegate = self
-        load(launchTarget: launchTarget)
+        window.contentViewController = makeContentViewController()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    private func load(launchTarget: InspectorLaunchTarget) {
-        hasDisplayedLoadFailurePage = false
-        switch launchTarget {
-        case let .local(indexURL, readAccessDirectory):
-            NSLog("Inspector load target: local %@", indexURL.path)
-            webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessDirectory)
-        case let .remote(url):
-            NSLog("Inspector load target: remote %@", url.absoluteString)
-            webView.load(URLRequest(url: url))
-        }
     }
 
     func ensureWindowVisible() {
@@ -89,111 +72,108 @@ final class NeptuneMainWindowController: NSWindowController, WKNavigationDelegat
         }
 
         window.makeKeyAndOrderFront(nil)
-        persistWindowFrameIfNeeded()
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        hasDisplayedLoadFailurePage = false
-        NSLog("Inspector page finished loading: %@", webView.url?.absoluteString ?? "nil")
+    func updateCLIStatus(isRunning: Bool) {
+        statusLabel.stringValue = isRunning ? "CLI 状态：运行中" : "CLI 状态：未运行"
+        startButton.isEnabled = !isRunning
+        stopButton.isEnabled = isRunning
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        NSLog("Inspector navigation failed: %@", error.localizedDescription)
-        displayLoadFailurePageIfNeeded(error)
+    func appendLogLine(_ line: String) {
+        let output = line.hasSuffix("\n") ? line : line + "\n"
+        let attributedOutput = NSAttributedString(string: output)
+
+        logTextView.textStorage?.append(attributedOutput)
+        logTextView.scrollToEndOfDocument(nil)
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        NSLog("Inspector provisional navigation failed: %@", error.localizedDescription)
-        displayLoadFailurePageIfNeeded(error)
-    }
+    private func makeContentViewController() -> NSViewController {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 860))
 
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        NSLog("Inspector web content process terminated")
-    }
+        statusLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        webURLLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        webURLLabel.textColor = NSColor.secondaryLabelColor
+        webURLLabel.lineBreakMode = .byTruncatingMiddle
+        webURLLabel.stringValue = "Web URL: \(webURL.absoluteString)"
 
-    private func configureWindowFramePersistence(_ window: NSWindow) {
-        let center = NotificationCenter.default
-        let names: [NSNotification.Name] = [
-            NSWindow.didMoveNotification,
-            NSWindow.didEndLiveResizeNotification,
-            NSWindow.willCloseNotification,
-        ]
+        logTextView.isEditable = false
+        logTextView.isSelectable = true
+        logTextView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        logTextView.backgroundColor = NSColor.textBackgroundColor
+        logTextView.autoresizingMask = [.width, .height]
+        logTextView.textContainerInset = NSSize(width: 8, height: 8)
 
-        for name in names {
-            center.addObserver(
-                self,
-                selector: #selector(handleWindowFrameChangeNotification(_:)),
-                name: name,
-                object: window
-            )
-        }
+        let logScrollView = NSScrollView()
+        logScrollView.hasVerticalScroller = true
+        logScrollView.hasHorizontalScroller = false
+        logScrollView.autohidesScrollers = true
+        logScrollView.borderType = .bezelBorder
+        logScrollView.documentView = logTextView
+
+        startButton.target = self
+        startButton.action = #selector(handleStartCLI)
+
+        stopButton.target = self
+        stopButton.action = #selector(handleStopCLI)
+
+        openWebButton.target = self
+        openWebButton.action = #selector(handleOpenWeb)
+
+        copyWebButton.target = self
+        copyWebButton.action = #selector(handleCopyWebURL)
+
+        let buttonRow = NSStackView(views: [startButton, stopButton, openWebButton, copyWebButton])
+        buttonRow.orientation = .horizontal
+        buttonRow.alignment = .centerY
+        buttonRow.spacing = 8
+
+        let contentStack = NSStackView(views: [statusLabel, webURLLabel, buttonRow, logScrollView])
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 12
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            contentStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            logScrollView.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            logScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 420)
+        ])
+
+        updateCLIStatus(isRunning: false)
+        appendLogLine("[desktop] Web URL: \(webURL.absoluteString)")
+        appendLogLine("[desktop] 等待 CLI 启动...")
+
+        let viewController = NSViewController()
+        viewController.view = container
+        return viewController
     }
 
     @objc
-    private func handleWindowFrameChangeNotification(_ notification: Notification) {
-        persistWindowFrameIfNeeded()
+    private func handleStartCLI() {
+        onStartCLI()
     }
 
-    private func persistWindowFrameIfNeeded() {
-        guard let window else {
-            return
-        }
-        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.persistedFrameKey)
+    @objc
+    private func handleStopCLI() {
+        onStopCLI()
     }
 
-    private static func restorePersistedFrameIfNeeded(_ window: NSWindow) {
-        guard let serializedFrame = UserDefaults.standard.string(forKey: Self.persistedFrameKey) else {
-            return
-        }
-        let restoredFrame = NSRectFromString(serializedFrame)
-        guard restoredFrame.width > 0, restoredFrame.height > 0 else {
-            return
-        }
-        window.setFrame(restoredFrame, display: false)
+    @objc
+    private func handleOpenWeb() {
+        NSWorkspace.shared.open(webURL)
     }
 
-    private func displayLoadFailurePageIfNeeded(_ error: Error) {
-        guard !hasDisplayedLoadFailurePage else {
-            return
-        }
-        hasDisplayedLoadFailurePage = true
-
-        let inspectorURL = ProcessInfo.processInfo.environment["NEPTUNE_INSPECTOR_URL"] ?? "http://127.0.0.1:4173"
-        let escapedError = escapeForHTML(error.localizedDescription)
-        let escapedInspectorURL = escapeForHTML(inspectorURL)
-        let html = """
-        <!doctype html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>Neptune Inspector Load Failed</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 24px; color: #111827; background: #f9fafb; }
-            .card { max-width: 860px; margin: 24px auto; padding: 20px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; }
-            code { background: #f3f4f6; border-radius: 6px; padding: 2px 6px; }
-            .error { color: #b91c1c; word-break: break-word; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h2>Inspector page load failed</h2>
-            <p>Desktop app did not receive a valid Inspector page.</p>
-            <p>Current expected URL: <code>\(escapedInspectorURL)</code></p>
-            <p class="error">Error: \(escapedError)</p>
-            <p>Check if H5 service is running, then relaunch the app or click refresh.</p>
-            <button onclick="location.reload()">Refresh</button>
-          </div>
-        </body>
-        </html>
-        """
-        webView.loadHTMLString(html, baseURL: nil)
-    }
-
-    private func escapeForHTML(_ raw: String) -> String {
-        raw
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
+    @objc
+    private func handleCopyWebURL() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(webURL.absoluteString, forType: .string)
+        appendLogLine("[desktop] 已复制 Web URL")
     }
 }

@@ -4,16 +4,17 @@ NeptuneKit v2 macOS shell app.
 
 ## What it does
 
-- Launches a minimal AppKit window.
-- Embeds `WKWebView` and resolves inspector assets in this order: `NEPTUNE_INSPECTOR_DIST`, `../neptune-inspector-h5/dist`, packaged app resources at `Resources/inspector/index.html`, then `http://127.0.0.1:18765/`.
-- Falls back to `http://127.0.0.1:18765/` when no local inspector asset is present.
-- Launches `neptune-gateway` automatically when the shell starts.
+- Launches a minimal AppKit window as a CLI shell.
+- Starts and stops `neptune` (CLI) lifecycle.
+- Shows a Web URL for opening Inspector in an external browser.
+- Streams CLI `stdout` / `stderr` logs into the desktop window.
 
 ## Current structure
 
 - `Sources/NeptuneDesktopMacOS/main.swift`: app entry and lifecycle.
-- `Sources/NeptuneDesktopMacOS/WindowController.swift`: window + `WKWebView` host.
+- `Sources/NeptuneDesktopMacOS/WindowController.swift`: window + CLI control panel + log console.
 - `Sources/NeptuneDesktopMacOS/GatewayLauncher.swift`: gateway process launcher.
+- `Sources/NeptuneDesktopMacOS/DesktopRuntimeConfiguration.swift`: runtime configuration resolver.
 
 ## Run locally
 
@@ -28,50 +29,46 @@ The window will first look for a local inspector asset, then fall back to `http:
 
 GitHub Actions runs on every `push` to `main` and on every `pull_request`. The workflow uses `swift build` followed by `swift test` on `macos-15` to keep the package and test suite validated continuously.
 
-## Inspector 资源加载
+## Web URL 展示
 
-默认情况下，desktop app 会按以下顺序查找 inspector 静态资源：
+桌面端不再内嵌 Inspector 页面，而是展示可访问 URL，并提供：
 
-1. `NEPTUNE_INSPECTOR_DIST` 指定的目录
-2. `../neptune-inspector-h5/dist`，相对于 `neptune-desktop-macos` 仓库目录
-3. `http://127.0.0.1:18765/`
+1. 一键复制 URL
+2. 一键用默认浏览器打开
 
-只要目录下存在 `index.html`，就会以本地文件方式打开，并允许 `dist/` 目录内的静态资源读取。
+Web URL 解析优先级：
 
-示例：
-
-```bash
-export NEPTUNE_INSPECTOR_DIST=/absolute/path/to/neptune-inspector-h5/dist
-swift run NeptuneDesktopMacOS
-```
+1. `NEPTUNE_WEB_URL`
+2. `NEPTUNE_INSPECTOR_URL`（兼容旧变量）
+3. `http://<NEPTUNE_HOST>:<NEPTUNE_PORT>/`
 
 ## Gateway launch
 
-The app tries to launch `neptune-gateway` automatically when it starts.
+The app tries to launch `neptune` automatically when it starts.
+Binary resolution priority:
+1. `NEPTUNE_GATEWAY_BIN`（显式覆盖）
+2. packaged `.app` 内置 `Contents/Resources/bin/neptune`
+3. 仓库内托管构建产物 `../neptune-gateway-swift/.build/*/neptune`
+4. `PATH` 中的 `neptune`（最后兜底）
 
 You can override the binary path and network binding with environment variables:
 
 - `NEPTUNE_GATEWAY_BIN`: absolute path to the gateway binary, or a command name on `PATH`
 - `NEPTUNE_HOST`: gateway bind host, default `127.0.0.1`
 - `NEPTUNE_PORT`: gateway bind port, default `18765`
+- `NEPTUNE_WEB_URL`: override displayed inspector web URL
+- `NEPTUNE_INSPECTOR_URL`: legacy URL override (still supported)
 
 Example:
 
 ```bash
-export NEPTUNE_GATEWAY_BIN=/path/to/neptune-gateway
+export NEPTUNE_GATEWAY_BIN=/path/to/neptune
 export NEPTUNE_HOST=127.0.0.1
 export NEPTUNE_PORT=18765
 swift run NeptuneDesktopMacOS
 ```
 
 If the gateway fails to start, the window still opens and the error is printed to the console.
-
-## Local workflow
-
-1. Build and place the gateway binary somewhere on `PATH`, or point `NEPTUNE_GATEWAY_BIN` to it.
-2. Build the inspector with `npm run build` inside `neptune-inspector-h5`, or point `NEPTUNE_INSPECTOR_DIST` to an existing `dist/` directory.
-3. Start this desktop shell.
-4. The embedded `WKWebView` loads the local inspector first, otherwise it falls back to the gateway URL.
 
 ## Release packaging
 
@@ -84,6 +81,7 @@ Use the packaging script to build a distributable macOS app bundle and copy the 
 ```
 
 The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the SwiftPM resource bundle, and places the inspector dist under both the app bundle `Resources/inspector/` path and the SwiftPM resource bundle used by `Bundle.module`.
+It also embeds the `neptune` CLI into `Contents/Resources/bin/neptune` (from `--gateway-bin` or current `PATH`).
 
 ### Smoke test
 
@@ -93,6 +91,7 @@ The script runs `swift build`, assembles `NeptuneDesktopMacOS.app`, copies the S
 - `Contents/MacOS/<executable>` 可执行文件存在
 - `Contents/Info.plist` 中的 `CFBundleIdentifier` 和 `CFBundleExecutable` 可读
 - `Contents/Resources/inspector/index.html` 存在
+- `Contents/Resources/bin/neptune` 存在且可执行
 
 脚本也可以本地复用：
 
