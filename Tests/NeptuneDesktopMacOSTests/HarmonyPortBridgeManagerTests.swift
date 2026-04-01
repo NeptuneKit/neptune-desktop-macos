@@ -19,7 +19,7 @@ struct HarmonyPortBridgeManagerTests {
             ]
         )
         let manager = HarmonyPortBridgeManager(
-            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, callbackPorts: [], intervalSeconds: 5),
+            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, gatewayAliasPorts: [], callbackPorts: [], intervalSeconds: 5),
             commandRunner: runner
         )
 
@@ -50,7 +50,7 @@ struct HarmonyPortBridgeManagerTests {
             ]
         )
         let manager = HarmonyPortBridgeManager(
-            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, callbackPorts: [], intervalSeconds: 5),
+            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, gatewayAliasPorts: [], callbackPorts: [], intervalSeconds: 5),
             commandRunner: runner
         )
 
@@ -82,7 +82,7 @@ struct HarmonyPortBridgeManagerTests {
             ]
         )
         let manager = HarmonyPortBridgeManager(
-            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, callbackPorts: [28767], intervalSeconds: 5),
+            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, gatewayAliasPorts: [], callbackPorts: [28767], intervalSeconds: 5),
             commandRunner: runner
         )
 
@@ -114,7 +114,7 @@ struct HarmonyPortBridgeManagerTests {
             ]
         )
         let manager = HarmonyPortBridgeManager(
-            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, callbackPorts: [], intervalSeconds: 5),
+            configuration: .init(enabled: true, hdcPath: "hdc", gatewayPort: 18765, gatewayAliasPorts: [], callbackPorts: [], intervalSeconds: 5),
             commandRunner: runner,
             callbackPortProvider: FakeCallbackPortProvider(ports: [41309])
         )
@@ -125,6 +125,45 @@ struct HarmonyPortBridgeManagerTests {
             ["hdc", "list", "targets", "-v"],
             ["hdc", "-t", "127.0.0.1:5555", "rport", "tcp:18765", "tcp:18765"],
             ["hdc", "-t", "127.0.0.1:5555", "fport", "tcp:41309", "tcp:41309"]
+        ])
+    }
+
+    @Test("bridges default simulator port to resolved gateway port when alias is configured")
+    func bridgesDefaultSimulatorPortAliasToResolvedGatewayPort() {
+        let runner = FakeShellCommandRunner(
+            responses: [
+                .init(
+                    expectedArguments: ["hdc", "list", "targets", "-v"],
+                    result: .init(status: 0, output: "127.0.0.1:5555 TCP Connected localhost\n")
+                ),
+                .init(
+                    expectedArguments: ["hdc", "-t", "127.0.0.1:5555", "rport", "tcp:18767", "tcp:18767"],
+                    result: .init(status: 0, output: "")
+                ),
+                .init(
+                    expectedArguments: ["hdc", "-t", "127.0.0.1:5555", "rport", "tcp:18765", "tcp:18767"],
+                    result: .init(status: 0, output: "")
+                )
+            ]
+        )
+        let manager = HarmonyPortBridgeManager(
+            configuration: .init(
+                enabled: true,
+                hdcPath: "hdc",
+                gatewayPort: 18767,
+                gatewayAliasPorts: [18765],
+                callbackPorts: [],
+                intervalSeconds: 5
+            ),
+            commandRunner: runner
+        )
+
+        manager.reconcileNowForTesting()
+
+        #expect(runner.recordedCalls == [
+            ["hdc", "list", "targets", "-v"],
+            ["hdc", "-t", "127.0.0.1:5555", "rport", "tcp:18767", "tcp:18767"],
+            ["hdc", "-t", "127.0.0.1:5555", "rport", "tcp:18765", "tcp:18767"]
         ])
     }
 }

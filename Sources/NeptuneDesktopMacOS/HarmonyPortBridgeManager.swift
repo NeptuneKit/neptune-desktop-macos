@@ -1,6 +1,48 @@
 import Foundation
 import SKProcessRunner
 
+struct GatewayClientSnapshot: Decodable, Equatable, Sendable {
+    let platform: String
+    let appId: String
+    let sessionId: String
+    let deviceId: String
+    let callbackEndpoint: String
+    let preferredTransports: [String]
+    let lastSeenAt: String
+    let expiresAt: String
+    let ttlSeconds: Int
+    let selected: Bool
+}
+
+private struct GatewayClientsListPayload: Decodable {
+    let items: [GatewayClientSnapshot]
+}
+
+enum GatewayClientsSnapshotParser {
+    static func decodeList(from data: Data) throws -> [GatewayClientSnapshot] {
+        try JSONDecoder()
+            .decode(GatewayClientsListPayload.self, from: data)
+            .items
+    }
+
+    static func callbackPorts(from data: Data) throws -> [Int] {
+        let items = try decodeList(from: data)
+        var ports: [Int] = []
+        for item in items {
+            guard let url = URL(string: item.callbackEndpoint),
+                  let port = url.port,
+                  port > 0,
+                  port <= 65_535 else {
+                continue
+            }
+            if !ports.contains(port) {
+                ports.append(port)
+            }
+        }
+        return ports
+    }
+}
+
 protocol CallbackPortProviding: Sendable {
     func callbackPorts() -> [Int]
 }
@@ -52,24 +94,8 @@ struct GatewayClientCallbackPortProvider: CallbackPortProviding {
     }
 
     private func parseCallbackPorts(from data: Data) -> [Int] {
-        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-              let root = jsonObject as? [String: Any],
-              let items = root["items"] as? [[String: Any]] else {
+        guard let ports = try? GatewayClientsSnapshotParser.callbackPorts(from: data) else {
             return []
-        }
-
-        var ports: [Int] = []
-        for item in items {
-            guard let callbackEndpoint = item["callbackEndpoint"] as? String,
-                  let url = URL(string: callbackEndpoint),
-                  let port = url.port,
-                  port > 0,
-                  port <= 65_535 else {
-                continue
-            }
-            if !ports.contains(port) {
-                ports.append(port)
-            }
         }
         return ports
     }
@@ -120,6 +146,7 @@ final class HarmonyPortBridgeManager: @unchecked Sendable {
         let enabled: Bool
         let hdcPath: String
         let gatewayPort: Int
+        let gatewayAliasPorts: [Int]
         let callbackPorts: [Int]
         let intervalSeconds: TimeInterval
     }
@@ -132,6 +159,8 @@ final class HarmonyPortBridgeManager: @unchecked Sendable {
     private var isRunning = false
     private var logHandler: LogHandler?
     private var lastLogLine: String?
+    private var lastDynamicPortsSignature: String?
+    private var lastBridgeStateByKey: [String: String] = [:]
 
     init(
         configuration: Configuration,
@@ -185,6 +214,8 @@ final class HarmonyPortBridgeManager: @unchecked Sendable {
             self.timer = nil
             self.isRunning = false
             self.lastLogLine = nil
+            self.lastDynamicPortsSignature = nil
+            self.lastBridgeStateByKey = [:]
             self.emitLog("Harmony 自动桥接已停止。")
         }
     }
@@ -203,58 +234,128 @@ final class HarmonyPortBridgeManager: @unchecked Sendable {
         }
 
         let dynamicPorts = callbackPortProvider?.callbackPorts() ?? []
-        if !dynamicPorts.isEmpty {
-            emitLog("发现动态回调端口：\(dynamicPorts.map(String.init).joined(separator: ","))")
+        let dynamicPortsSignature = dynamicPorts.map(String.init).joined(separator: ",")
+        if dynamicPortsSignature != lastDynamicPortsSignature {
+            if !dynamicPorts.isEmpty {
+                emitLog("发现动态回调端口：\(dynamicPortsSignature)")
+            }
+            lastDynamicPortsSignature = dynamicPortsSignature
         }
 
+        var seenBridgeKeys: Set<String> = []
         for target in targets {
-            bridgeGatewayPort(target: target, port: configuration.gatewayPort)
+            for deviceGatewayPort in mergedGatewayPorts() {
+                bridgeGatewayPort(
+                    target: target,
+                    devicePort: deviceGatewayPort,
+                    hostPort: configuration.gatewayPort,
+                    seenKeys: &seenBridgeKeys
+                )
+            }
             for callbackPort in mergedCallbackPorts(dynamicPorts: dynamicPorts) {
-                bridgeCallbackPort(target: target, port: callbackPort)
+                bridgeCallbackPort(target: target, port: callbackPort, seenKeys: &seenBridgeKeys)
             }
         }
+        pruneInactiveBridgeStates(seenKeys: seenBridgeKeys)
     }
 
-    private func bridgeGatewayPort(target: String, port: Int) {
-        guard port > 0, port <= 65_535 else {
+    private func bridgeGatewayPort(
+        target: String,
+        devicePort: Int,
+        hostPort: Int,
+        seenKeys: inout Set<String>
+    ) {
+        guard devicePort > 0, devicePort <= 65_535 else {
             return
         }
-        let mapping = "tcp:\(port)"
-        let rportResult = runHdc(arguments: ["-t", target, "rport", mapping, mapping])
+        guard hostPort > 0, hostPort <= 65_535 else {
+            return
+        }
+        let deviceMapping = "tcp:\(devicePort)"
+        let hostMapping = "tcp:\(hostPort)"
+        let bridgeKey = "gateway|\(target)|\(devicePort)->\(hostPort)"
+        seenKeys.insert(bridgeKey)
+        let rportResult = runHdc(arguments: ["-t", target, "rport", deviceMapping, hostMapping])
         if rportResult.status == 0 {
-            emitLogOnce("已建立网关桥接 target=\(target) \(mapping)->\(mapping)")
+            emitBridgeStateIfChanged(
+                key: bridgeKey,
+                state: "ok:rport",
+                message: "已建立网关桥接 target=\(target) \(deviceMapping)->\(hostMapping)"
+            )
             return
         }
 
-        let fallbackResult = runHdc(arguments: ["-t", target, "fport", mapping, mapping])
+        let fallbackResult = runHdc(arguments: ["-t", target, "fport", deviceMapping, hostMapping])
         if fallbackResult.status == 0 {
-            emitLogOnce("已建立网关桥接(target=\(target), 使用 fport 回退) \(mapping)->\(mapping)")
+            emitBridgeStateIfChanged(
+                key: bridgeKey,
+                state: "ok:fport",
+                message: "已建立网关桥接(target=\(target), 使用 fport 回退) \(deviceMapping)->\(hostMapping)"
+            )
             return
         }
 
         let detail = condensedOutput(primary: rportResult.output, fallback: fallbackResult.output)
-        emitLogOnce("网关桥接失败 target=\(target) port=\(port) detail=\(detail)")
+        emitBridgeStateIfChanged(
+            key: bridgeKey,
+            state: "fail:\(detail)",
+            message: "网关桥接失败 target=\(target) devicePort=\(devicePort) hostPort=\(hostPort) detail=\(detail)"
+        )
     }
 
-    private func bridgeCallbackPort(target: String, port: Int) {
+    private func bridgeCallbackPort(target: String, port: Int, seenKeys: inout Set<String>) {
         guard port > 0, port <= 65_535 else {
             return
         }
         let mapping = "tcp:\(port)"
+        let bridgeKey = "callback|\(target)|\(port)"
+        seenKeys.insert(bridgeKey)
         let fportResult = runHdc(arguments: ["-t", target, "fport", mapping, mapping])
         if fportResult.status == 0 {
-            emitLogOnce("已建立回调桥接 target=\(target) \(mapping)->\(mapping)")
+            emitBridgeStateIfChanged(
+                key: bridgeKey,
+                state: "ok:fport",
+                message: "已建立回调桥接 target=\(target) \(mapping)->\(mapping)"
+            )
             return
         }
 
         let detail = condensedOutput(primary: fportResult.output, fallback: "")
-        emitLogOnce("回调桥接失败 target=\(target) port=\(port) detail=\(detail)")
+        emitBridgeStateIfChanged(
+            key: bridgeKey,
+            state: "fail:\(detail)",
+            message: "回调桥接失败 target=\(target) port=\(port) detail=\(detail)"
+        )
+    }
+
+    private func pruneInactiveBridgeStates(seenKeys: Set<String>) {
+        if seenKeys.isEmpty {
+            lastBridgeStateByKey = [:]
+            return
+        }
+        lastBridgeStateByKey = lastBridgeStateByKey.filter { seenKeys.contains($0.key) }
+    }
+
+    private func emitBridgeStateIfChanged(key: String, state: String, message: String) {
+        if lastBridgeStateByKey[key] == state {
+            return
+        }
+        lastBridgeStateByKey[key] = state
+        emitLog(message)
     }
 
     private func mergedCallbackPorts(dynamicPorts: [Int]) -> [Int] {
         var ports: [Int] = configuration.callbackPorts
         for port in dynamicPorts where !ports.contains(port) {
             ports.append(port)
+        }
+        return ports
+    }
+
+    private func mergedGatewayPorts() -> [Int] {
+        var ports: [Int] = [configuration.gatewayPort]
+        for alias in configuration.gatewayAliasPorts where !ports.contains(alias) {
+            ports.append(alias)
         }
         return ports
     }

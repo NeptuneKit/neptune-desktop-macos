@@ -22,6 +22,9 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate, @uncheck
             enabled: runtimeConfiguration.harmonyAutoBridgeEnabled,
             hdcPath: runtimeConfiguration.hdcPath,
             gatewayPort: runtimeConfiguration.port,
+            gatewayAliasPorts: runtimeConfiguration.port == DesktopRuntimeConfiguration.defaultPort
+                ? []
+                : [DesktopRuntimeConfiguration.defaultPort],
             callbackPorts: [Self.defaultHarmonyCallbackPort],
             intervalSeconds: runtimeConfiguration.harmonyBridgeIntervalSeconds
         ),
@@ -42,6 +45,7 @@ final class NeptuneDesktopApplication: NSObject, NSApplicationDelegate, @uncheck
         )
         let controller = NeptuneMainWindowController(
             webURL: inspectorWebResolution.webURL,
+            gatewayURL: runtimeConfiguration.webURL,
             inspectorReleasePageURL: inspectorReleasePageURL,
             onStartCLI: { [weak self] in
                 self?.startGateway()
